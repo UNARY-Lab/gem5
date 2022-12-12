@@ -219,6 +219,10 @@ MemCmd::commandInfo[] =
     { {IsRead, IsRequest, NeedsResponse}, HTMReqResp, "HTMReq" },
     { {IsRead, IsResponse}, InvalidCmd, "HTMReqResp" },
     { {IsRead, IsRequest}, InvalidCmd, "HTMAbort" },
+
+        // for cxl.mem extended
+    { {IsRead, IsRequest, NeedsResponse}, S2MDRS, "M2SReq"},
+    { {IsWrite, IsRequest, NeedsResponse}, S2MNDR, "M2SRwd"}
 };
 
 AddrRange

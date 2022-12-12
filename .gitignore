@@ -30,4 +30,11 @@ m5out
 /system/arm/bootloader/arm64/boot_v2.arm64
 configs/example/memcheck.cfg
 configs/dram/lowp_sweep.cfg
+.vscode/
+fs_images/
+spec2017/
+cpu_tests/
+src/learning_gem5/
+configs/learning_gem5/
+configs/tutorial/
 .pyenv
