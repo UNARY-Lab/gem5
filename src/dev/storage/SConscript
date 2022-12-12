@@ -45,10 +45,14 @@ if env['TARGET_ISA'] == 'null':
 
 # Controllers
 SimObject('Ide.py', sim_objects=['IdeDisk', 'IdeController'], enums=['IdeID'])
+SimObject('CxlMemory.py', sim_objects=['CxlMemory'])
 
 Source('ide_ctrl.cc')
 Source('ide_disk.cc')
 
+Source('cxl_memory.cc')
+
+DebugFlag('CxlMemory')
 DebugFlag('IdeCtrl')
 DebugFlag('IdeDisk')
 

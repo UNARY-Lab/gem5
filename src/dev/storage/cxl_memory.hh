@@ -3,13 +3,12 @@
 #include "base/types.hh"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
-#include "mem/simple_mem.hh"
 #include "params/CxlMemory.hh"
 #include "dev/pci/device.hh"
 
 namespace gem5 {
 
-class CxlMemory : public PioDevice {
+class CxlMemory : public PciDevice {
    private:
     class Memory {
        private:

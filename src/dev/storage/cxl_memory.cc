@@ -1,11 +1,11 @@
-#include "dev/cxl_memory.hh"
+#include "dev/storage/cxl_memory.hh"
 #include "base/addr_range.hh"
 #include "debug/CxlMemory.hh"
 
 namespace gem5 {
 
 CxlMemory::CxlMemory(const Param& p)
-    : PioDevice(p), mem_(p.range), latency_(p.latency), cxl_mem_latency_(p.cxl_mem_latency) {}
+    : PciDevice(p), mem_(p.range), latency_(p.latency), cxl_mem_latency_(p.cxl_mem_latency) {}
 
 Tick CxlMemory::read(PacketPtr pkt) {
     Tick cxl_latency = resolve_cxl_mem(pkt);

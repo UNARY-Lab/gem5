@@ -133,14 +133,3 @@ class IsaFake(BasicPioDevice):
 class BadAddr(IsaFake):
     pio_addr = 0
     ret_bad_addr = Param.Bool(True, "Return pkt status bad address on access")
-
-class CxlMemory(PioDevice):
-    type = 'CxlMemory'
-    cxx_header = "dev/cxl_memory.hh"
-    cxx_class = 'gem5::CxlMemory'
-
-    range = Param.AddrRange('128MiB', "Address range for the device")
-
-    latency = Param.Latency('50ns', "cxl-memory device's latency for mem access")
-
-    cxl_mem_latency = Param.Latency('2ns', "cxl.mem protocol processing's latency for device")
