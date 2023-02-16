@@ -5,7 +5,7 @@
 namespace gem5 {
 
 CxlMemory::CxlMemory(const Param& p)
-    : PciDevice(p), mem_(p.range), latency_(p.latency), cxl_mem_latency_(p.cxl_mem_latency) {}
+    : PciDevice(p), mem_(RangeSize(p.BAR0->addr(), p.BAR0->size())), latency_(p.latency), cxl_mem_latency_(p.cxl_mem_latency) {}
 
 Tick CxlMemory::read(PacketPtr pkt) {
     Tick cxl_latency = resolve_cxl_mem(pkt);
@@ -20,7 +20,7 @@ Tick CxlMemory::write(PacketPtr pkt) {
 }
 
 AddrRangeList CxlMemory::getAddrRanges() const {
-    return AddrRangeList{RangeSize(mem_.start(), mem_.size())};
+    return PciDevice::getAddrRanges();
 }
 
 Tick CxlMemory::resolve_cxl_mem(PacketPtr pkt) {

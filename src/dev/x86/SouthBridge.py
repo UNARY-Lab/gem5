@@ -36,6 +36,7 @@ from m5.objects.Ide import IdeController
 from m5.objects.PciDevice import PciLegacyIoBar, PciIoBar
 from m5.objects.PcSpeaker import PcSpeaker
 from m5.SimObject import SimObject
+from m5.objects.CxlMemory import CxlMemory
 
 def x86IOAddress(port):
     IO_address_space_base = 0x8000000000000000
@@ -73,6 +74,8 @@ class SouthBridge(SimObject):
     ide.InterruptLine = 14
     ide.InterruptPin = 1
 
+    cxlmemory = CxlMemory(pci_func=0, pci_dev=6, pci_bus=0)
+
     def attachIO(self, bus, dma_ports):
         # Route interrupt signals
         self.pic1.output = self.io_apic.inputs[0]
@@ -90,8 +93,11 @@ class SouthBridge(SimObject):
         self.cmos.pio = bus.mem_side_ports
         self.dma1.pio = bus.mem_side_ports
         self.ide.pio = bus.mem_side_ports
+        self.cxlmemory.pio = bus.mem_side_ports
         if dma_ports.count(self.ide.dma) == 0:
                 self.ide.dma = bus.cpu_side_ports
+        if dma_ports.count(self.cxlmemory.dma) == 0:
+                self.cxlmemory.dma = bus.cpu_side_ports
         self.keyboard.pio = bus.mem_side_ports
         self.pic1.pio = bus.mem_side_ports
         self.pic2.pio = bus.mem_side_ports
@@ -99,3 +105,6 @@ class SouthBridge(SimObject):
         self.speaker.pio = bus.mem_side_ports
         self.io_apic.pio = bus.mem_side_ports
         self.io_apic.int_requestor = bus.cpu_side_ports
+
+        print('python log: attachIO: finish')
+
