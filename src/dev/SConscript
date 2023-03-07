@@ -31,6 +31,9 @@ Import('*')
 SimObject('Device.py', sim_objects=[
     'PioDevice', 'BasicPioDevice', 'DmaDevice', 'DmaVirtDevice', 'IsaFake'])
 Source('io_device.cc')
+
+# SimObject('CxlMemory.py', sim_objects=['CxlMemory'])
+
 Source('isa_fake.cc')
 Source('dma_device.cc')
 Source('dma_virt_device.cc')
