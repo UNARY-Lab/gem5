@@ -221,6 +221,7 @@ def packed32(x):
     ret = []
     more = True
     while more:
+        x = int(x)
         b = x & 0x7F
         x = x >> 7
         if ((x == 0) and ((b & 0x40) == 0)) or (
@@ -383,7 +384,13 @@ def timestampList(x):
 
 def writeBinary(outfile, binary_list):
     for i in binary_list:
-        outfile.write("%c" % i)
+        if isinstance(i, str):
+            byteVal = bytes(i, "utf-8")
+        elif isinstance(i, int):
+            byteVal = bytes([i])
+        else:
+            byteVal = i
+        outfile.write(byteVal)
 
 
 ############################################################
@@ -661,7 +668,7 @@ def parseProcessInfo(task_file):
     task_name_failure_warned = False
 
     for line in process_file:
-        match = re.match(process_re, line)
+        match = re.match(process_re, line.decode())
         if match:
             tick = int(match.group(1))
             if start_tick < 0:
@@ -751,7 +758,7 @@ def parseProcessInfo(task_file):
             if len(unified_event_list) == num_events:
                 print("Truncating at", num_events, "events!")
                 break
-    print("Found %d events." % len(unified_event_list))
+    print(f"Found {len(unified_event_list)} events.")
 
     for process in process_list:
         if process.pid > 9990:  # fix up framebuffer ticks
@@ -1012,8 +1019,7 @@ def readGem5Stats(stats, gem5_stats_file):
                 sim_freq = int(m.group(1))  # ticks in 1 sec
                 ticks_in_ns = int(sim_freq / 1e9)
                 print(
-                    "Simulation frequency found! 1 tick == %e sec\n"
-                    % (1.0 / sim_freq)
+                    f"Simulation frequency found! 1 tick == {1.0 / sim_freq:e} sec\n"
                 )
 
         # Final tick in gem5 stats: current absolute timestamp
@@ -1145,7 +1151,7 @@ def doCapturedXML(output_path, stats):
         s.set("title", stat.group)
         s.set("name", stat_name)
         s.set("color", "0x00000000")
-        s.set("key", "0x%08x" % stat.key)
+        s.set("key", f"0x{stat.key:08x}")
         s.set("type", stat_name)
         s.set("event", "0x00000000")
         if stat.per_cpu:
@@ -1354,7 +1360,7 @@ output_path = args.output_path
 # Make sure input path exists
 ####
 if not os.path.exists(input_path):
-    print("ERROR: Input path %s does not exist!" % input_path)
+    print(f"ERROR: Input path {input_path} does not exist!")
     sys.exit(1)
 
 ####
@@ -1389,7 +1395,7 @@ gem5_stats_file = input_path + "/stats.txt.gz"
 if not os.path.exists(gem5_stats_file):
     gem5_stats_file = input_path + "/stats.txt"
 if not os.path.exists(gem5_stats_file):
-    print("ERROR: stats.txt[.gz] file does not exist in %s!" % input_path)
+    print(f"ERROR: stats.txt[.gz] file does not exist in {input_path}!")
     sys.exit(1)
 
 readGem5Stats(stats, gem5_stats_file)

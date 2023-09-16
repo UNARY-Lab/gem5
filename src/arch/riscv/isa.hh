@@ -67,23 +67,32 @@ enum FPUStatus
     DIRTY = 3,
 };
 
+using VPUStatus = FPUStatus;
+
 class ISA : public BaseISA
 {
   protected:
+    RiscvType _rvType;
     std::vector<RegVal> miscRegFile;
     bool checkAlignment;
+    bool enableRvv;
 
     bool hpmCounterEnabled(int counter) const;
+
+    // Load reserve - store conditional monitor
+    const int WARN_FAILURE = 10000;
+    const Addr INVALID_RESERVATION_ADDR = (Addr)-1;
+    std::unordered_map<int, Addr> load_reservation_addrs;
 
   public:
     using Params = RiscvISAParams;
 
     void clear() override;
 
-    PCStateBase *
+    PCStateBase*
     newPCState(Addr new_inst_addr=0) const override
     {
-        return new PCState(new_inst_addr);
+        return new PCState(new_inst_addr, _rvType, VLENB);
     }
 
   public:
@@ -104,7 +113,7 @@ class ISA : public BaseISA
     virtual const std::unordered_map<int, RegVal>&
     getCSRMaskMap() const
     {
-        return CSRMasks;
+        return CSRMasks[_rvType];
     }
 
     bool alignmentCheckEnabled() const { return checkAlignment; }
@@ -125,6 +134,19 @@ class ISA : public BaseISA
     void handleLockedSnoop(PacketPtr pkt, Addr cacheBlockMask) override;
 
     void globalClearExclusive() override;
+
+    void resetThread() override;
+
+    RiscvType rvType() const { return _rvType; }
+
+    bool getEnableRvv() const { return enableRvv; }
+
+    void
+    clearLoadReservation(ContextID cid)
+    {
+        Addr& load_reservation_addr = load_reservation_addrs[cid];
+        load_reservation_addr = INVALID_RESERVATION_ADDR;
+    }
 };
 
 } // namespace RiscvISA

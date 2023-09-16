@@ -29,13 +29,13 @@ from m5.objects import *
 from os import path
 
 # For downloading the disk image
-from gem5.resources.resource import Resource
+from gem5.resources.resource import obtain_resource
 
 import argparse
 
 
 def generateMemNode(state, mem_range):
-    node = FdtNode("memory@%x" % int(mem_range.start))
+    node = FdtNode(f"memory@{int(mem_range.start):x}")
     node.append(FdtPropertyStrings("device_type", ["memory"]))
     node.append(
         FdtPropertyWords(
@@ -139,7 +139,7 @@ cpu_clock_rate = args.cpu_clock_rate
 memory_size = args.memory_size
 
 # Try downloading the Resource
-bbl_resource = Resource("riscv-boot-exit-nodisk")
+bbl_resource = obtain_resource("riscv-boot-exit-nodisk")
 bbl_path = bbl_resource.get_local_path()
 
 system = System()

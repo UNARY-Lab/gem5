@@ -55,6 +55,7 @@
 #include "base/addr_range.hh"
 #include "base/cast.hh"
 #include "base/compiler.hh"
+#include "base/extensible.hh"
 #include "base/flags.hh"
 #include "base/logging.hh"
 #include "base/printable.hh"
@@ -267,8 +268,9 @@ class MemCmd {
  * ultimate destination and back, possibly being conveyed by several
  * different Packets along the way.)
  */
-class Packet : public Printable {
-   public:
+class Packet : public Printable, public Extensible<Packet>
+{
+  public:
     typedef uint32_t FlagsType;
     typedef gem5::Flags<FlagsType> Flags;
 
@@ -589,9 +591,11 @@ class Packet : public Printable {
     bool isPrint() const             { return cmd.isPrint(); }
     bool isFlush() const             { return cmd.isFlush(); }
 
-    bool isWholeLineWrite(unsigned blk_size) {
-        return (cmd == MemCmd::WriteReq || cmd == MemCmd::WriteLineReq) && getOffset(blk_size) == 0 &&
-               getSize() == blk_size;
+    bool isWholeLineWrite(unsigned blk_size)
+    {
+        return (cmd == MemCmd::WriteReq || cmd == MemCmd::WriteLineReq) &&
+            getOffset(blk_size) == 0 && getSize() == blk_size &&
+            !isMaskedWrite();
     }
 
     //@{
@@ -909,21 +913,19 @@ class Packet : public Printable {
      * packet should allocate its own data.
      */
     Packet(const PacketPtr pkt, bool clear_flags, bool alloc_data)
-        : cmd(pkt->cmd),
-          id(pkt->id),
-          req(pkt->req),
-          data(nullptr),
-          addr(pkt->addr),
-          _isSecure(pkt->_isSecure),
-          size(pkt->size),
-          bytesValid(pkt->bytesValid),
-          _qosValue(pkt->qosValue()),
-          htmReturnReason(HtmCacheFailure::NO_FAIL),
-          htmTransactionUid(0),
-          headerDelay(pkt->headerDelay),
-          snoopDelay(0),
-          payloadDelay(pkt->payloadDelay),
-          senderState(pkt->senderState) {
+        :  Extensible<Packet>(*pkt),
+           cmd(pkt->cmd), id(pkt->id), req(pkt->req),
+           data(nullptr),
+           addr(pkt->addr), _isSecure(pkt->_isSecure), size(pkt->size),
+           bytesValid(pkt->bytesValid),
+           _qosValue(pkt->qosValue()),
+           htmReturnReason(HtmCacheFailure::NO_FAIL),
+           htmTransactionUid(0),
+           headerDelay(pkt->headerDelay),
+           snoopDelay(0),
+           payloadDelay(pkt->payloadDelay),
+           senderState(pkt->senderState)
+    {
         if (!clear_flags)
             flags.set(pkt->flags & COPY_FLAGS);
 
@@ -1041,6 +1043,16 @@ class Packet : public Printable {
     }
 
     /**
+     * Accessor functions for the cache bypass flags. The cache bypass
+     * can specify which levels in the hierarchy to bypass. If GLC_BIT
+     * is set, the requests are globally coherent and bypass TCP.
+     * If SLC_BIT is set, then the requests are system level coherent
+     * and bypass both TCP and TCC.
+     */
+    bool isGLCSet() const { return req->isGLCSet();}
+    bool isSLCSet() const { return req->isSLCSet();}
+
+    /**
      * Check if packet corresponds to a given block-aligned address and
      * address space.
      *
@@ -1082,7 +1094,7 @@ class Packet : public Printable {
    public:
     /**
      * @{
-     * @name Data accessor mehtods
+     * @name Data accessor methods
      */
 
     /**
@@ -1325,7 +1337,20 @@ class Packet : public Printable {
      */
     bool isCleanEviction() const { return cmd == MemCmd::CleanEvict || cmd == MemCmd::WritebackClean; }
 
-    bool isMaskedWrite() const { return (cmd == MemCmd::WriteReq && req->isMasked()); }
+    /**
+     * Is this packet a clean invalidate request, e.g., clflush/clflushopt?
+     */
+    bool
+    isCleanInvalidateRequest() const
+    {
+        return cmd == MemCmd::CleanInvalidReq;
+    }
+
+    bool
+    isMaskedWrite() const
+    {
+        return (cmd == MemCmd::WriteReq && req->isMasked());
+    }
 
     /**
      * Check a functional request against a memory value represented

@@ -33,6 +33,8 @@
 
 #include "arch/riscv/insts/static_inst.hh"
 #include "arch/riscv/isa.hh"
+#include "arch/riscv/mmu.hh"
+#include "arch/riscv/pmp.hh"
 #include "arch/riscv/regs/misc.hh"
 #include "arch/riscv/utility.hh"
 #include "cpu/base.hh"
@@ -135,10 +137,9 @@ RiscvFault::invoke(ThreadContext *tc, const StaticInstPtr &inst)
         }
 
         // Set fault cause, privilege, and return PC
-        // Interrupt is indicated on the MSB of cause (bit 63 in RV64)
         uint64_t _cause = _code;
         if (isInterrupt()) {
-           _cause |= (1L << 63);
+           _cause |= CAUSE_INTERRUPT_MASKS[pc_state.rvType()];
         }
         tc->setMiscReg(cause, _cause);
         tc->setMiscReg(epc, tc->pcState().instAddr());
@@ -152,6 +153,10 @@ RiscvFault::invoke(ThreadContext *tc, const StaticInstPtr &inst)
             tc->setMiscReg(MISCREG_NMIE, 0);
         }
 
+        // Clear load reservation address
+        auto isa = static_cast<RiscvISA::ISA*>(tc->getIsaPtr());
+        isa->clearLoadReservation(tc->contextId());
+
         // Set PC to fault handler address
         Addr addr = mbits(tc->readMiscReg(tvec), 63, 2);
         if (isInterrupt() && bits(tc->readMiscReg(tvec), 1, 0) == 1)
@@ -159,8 +164,6 @@ RiscvFault::invoke(ThreadContext *tc, const StaticInstPtr &inst)
         pc_state.set(addr);
         tc->pcState(pc_state);
     } else {
-        inst->advancePC(pc_state);
-        tc->pcState(pc_state);
         invokeSE(tc, inst);
     }
 }
@@ -177,8 +180,22 @@ Reset::invoke(ThreadContext *tc, const StaticInstPtr &inst)
 
     // Advance the PC to the implementation-defined reset vector
     auto workload = dynamic_cast<Workload *>(tc->getSystemPtr()->workload);
-    PCState pc(workload->getEntry());
-    tc->pcState(pc);
+    std::unique_ptr<PCState> new_pc(dynamic_cast<PCState *>(
+        tc->getIsaPtr()->newPCState(workload->getEntry())));
+    panic_if(!new_pc, "Failed create new PCState from ISA pointer");
+    VTYPE vtype = 0;
+    vtype.vill = 1;
+    new_pc->vtype(vtype);
+    new_pc->vl(0);
+    tc->pcState(*new_pc);
+
+    // Reset PMP Cfg
+    auto* mmu = dynamic_cast<RiscvISA::MMU*>(tc->getMMUPtr());
+    if (mmu == nullptr) {
+        warn("MMU is not Riscv MMU instance, we can't reset PMP");
+        return;
+    }
+    mmu->getPMP()->pmpReset();
 }
 
 void
@@ -192,9 +209,11 @@ UnknownInstFault::invokeSE(ThreadContext *tc, const StaticInstPtr &inst)
 void
 IllegalInstFault::invokeSE(ThreadContext *tc, const StaticInstPtr &inst)
 {
-    auto *rsi = static_cast<RiscvStaticInst *>(inst.get());
-    panic("Illegal instruction 0x%08x at pc %s: %s", rsi->machInst,
-        tc->pcState(), reason.c_str());
+    if (! tc->getSystemPtr()->trapToGdb(GDBSignal::ILL, tc->contextId()) ) {
+        auto *rsi = static_cast<RiscvStaticInst *>(inst.get());
+        panic("Illegal instruction 0x%08x at pc %s: %s", rsi->machInst,
+            tc->pcState(), reason.c_str());
+    }
 }
 
 void
@@ -213,12 +232,20 @@ IllegalFrmFault::invokeSE(ThreadContext *tc, const StaticInstPtr &inst)
 void
 BreakpointFault::invokeSE(ThreadContext *tc, const StaticInstPtr &inst)
 {
-    schedRelBreak(0);
+    if (! tc->getSystemPtr()->trapToGdb(GDBSignal::TRAP, tc->contextId()) ) {
+        schedRelBreak(0);
+    }
 }
 
 void
 SyscallFault::invokeSE(ThreadContext *tc, const StaticInstPtr &inst)
 {
+    /* Advance the PC to next instruction so - once (simulated) syscall
+       is executed - execution continues. */
+    auto pc_state = tc->pcState().as<PCState>();
+    inst->advancePC(pc_state);
+    tc->pcState(pc_state);
+
     tc->getSystemPtr()->workload->syscall(tc);
 }
 

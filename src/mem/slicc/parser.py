@@ -520,7 +520,7 @@ class SLICC(Grammar):
 
     def p_typestr__multi(self, p):
         "typestr : typestr DOUBLE_COLON ident"
-        p[0] = "%s::%s" % (p[1], p[3])
+        p[0] = f"{p[1]}::{p[3]}"
 
     def p_typestr__single(self, p):
         "typestr : ident"
@@ -633,11 +633,15 @@ class SLICC(Grammar):
 
     def p_statement__enqueue(self, p):
         "statement : ENQUEUE '(' var ',' type ')' statements"
-        p[0] = ast.EnqueueStatementAST(self, p[3], p[5], None, p[7])
+        p[0] = ast.EnqueueStatementAST(self, p[3], p[5], None, None, p[7])
 
     def p_statement__enqueue_latency(self, p):
         "statement : ENQUEUE '(' var ',' type ',' expr ')' statements"
-        p[0] = ast.EnqueueStatementAST(self, p[3], p[5], p[7], p[9])
+        p[0] = ast.EnqueueStatementAST(self, p[3], p[5], p[7], None, p[9])
+
+    def p_statement__enqueue_latency_bypass_strict_fifo(self, p):
+        "statement : ENQUEUE '(' var ',' type ',' expr ',' expr ')' statements"
+        p[0] = ast.EnqueueStatementAST(self, p[3], p[5], p[7], p[9], p[11])
 
     def p_statement__defer_enqueueing(self, p):
         "statement : DEFER_ENQUEUEING '(' var ',' type ')' statements"

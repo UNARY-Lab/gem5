@@ -34,7 +34,7 @@ from m5.util import warn
 import os
 import sys
 from pathlib import Path
-from typing import Optional, List, Tuple, Dict, Generator, Union
+from typing import Optional, List, Tuple, Dict, Generator, Union, Callable
 
 from .exit_event_generators import (
     warn_default_decorator,
@@ -52,10 +52,6 @@ from ..components.processors.switchable_processor import SwitchableProcessor
 class Simulator:
     """
     This Simulator class is used to manage the execution of a gem5 simulation.
-
-    **Warning:** The simulate package is still in a beta state. The gem5
-    project does not guarantee the APIs within this package will remain
-    consistent in future across upcoming releases.
 
     Example
     -------
@@ -87,7 +83,14 @@ class Simulator:
         board: AbstractBoard,
         full_system: Optional[bool] = None,
         on_exit_event: Optional[
-            Dict[ExitEvent, Generator[Optional[bool], None, None]]
+            Dict[
+                ExitEvent,
+                Union[
+                    Generator[Optional[bool], None, None],
+                    List[Callable],
+                    Callable,
+                ],
+            ]
         ] = None,
         expected_execution_order: Optional[List[ExitEvent]] = None,
         checkpoint_path: Optional[Path] = None,
@@ -98,14 +101,21 @@ class Simulator:
         This is optional and used to override default behavior. If not set,
         whether or not to run in FS mode will be determined via the board's
         `is_fullsystem()` function.
-        :param on_exit_event: An optional map to specify the generator to
-        execute on each exit event. The generator may yield a boolean which,
-        if True, will have the Simulator exit the run loop.
-        :param expected_execution_order: May be specified to check the exit
-        events come in a specified order. If the order specified is not
-        encountered (e.g., 'Workbegin', 'Workend', then 'Exit'), an Exception
-        is thrown. If this parameter is not specified, any ordering of exit
-        events is valid.
+        :param on_exit_event: An optional map to specify what to execute on
+        each exit event. There are three possibilities here: a generator, a
+        list of functions, or a single function.:
+        1. Generator: The generator may yield a boolean each time the
+        associated exit event is encountered. If True the simulator will exit
+        the simulation loop.
+        2. List of functions: Each function must be callable with no mandatory
+        arguments and return a boolean specifying if the Simulation should exit
+        the simulation loop. Upon each exit event the list will pop the start
+        of the list and execute it. If the list is empty the default behavior
+        for that exit event will be executed.
+        3. Single function: The function must be callable with no mandatory
+        arguments and return a boolean specifying if the Simulation should exit
+        or not. This function is executed each time the associated exit event
+        is encountered.
         :param checkpoint_path: An optional parameter specifying the directory
         of the checkpoint to instantiate from. When the path is None, no
         checkpoint will be loaded. By default, the path is None. **This
@@ -114,6 +124,9 @@ class Simulator:
 
         `on_exit_event` usage notes
         ---------------------------
+
+        With Generators
+        ===============
 
         The `on_exit_event` parameter specifies a Python generator for each
         exit event. `next(<generator>)` is run each time an exit event. The
@@ -146,6 +159,77 @@ class Simulator:
         encountered, will dump gem5 statistics the second time an exit event is
         encountered, and will terminate the Simulator run loop the third time.
 
+        With a list of functions
+        ========================
+
+        Alternatively, instead of passing a generator per exit event, a list of
+        functions may be passed. Each function must take no mandatory arguments
+        and return True if the simulator is to exit after being called.
+
+        An example:
+
+        ```
+        def stop_simulation() -> bool:
+            return True
+
+        def switch_cpus() -> bool:
+            processor.switch()
+            return False
+
+        def print_hello() -> None:
+            # Here we don't explicitly return a boolean, but the simulator
+            # treats a None return as False. Ergo the Simulation loop is not
+            # terminated.
+            print("Hello")
+
+
+        simulator = Simulator(
+            board=board,
+            on_exit_event = {
+                ExitEvent.Exit : [
+                    print_hello,
+                    switch_cpus,
+                    print_hello,
+                    stop_simulation
+                ],
+            },
+        )
+        ```
+
+        Upon each `EXIT` type exit event the list will function as a queue,
+        with the top function of the list popped and executed. Therefore, in
+        this example, the first `EXIT` type exit event will cause `print_hello`
+        to be executed, and the second `EXIT` type exit event will cause the
+        `switch_cpus` function to run. The third will execute `print_hello`
+        again before finally, on the forth exit event will call
+        `stop_simulation` which will stop the simulation as it returns False.
+
+        With a function
+        ===============
+        A single function can be passed. In this case every exit event of that
+        type will execute that function every time. The function should not
+        accept any mandatory parameters and return a boolean specifying if the
+        simulation loop should end after it is executed.
+        An example:
+        ```
+        def print_hello() -> bool:
+            print("Hello")
+            return False
+        simulator = Simulator(
+            board=board,
+            on_exit_event = {
+                ExitEvent.Exit : print_hello
+            },
+        )
+        ```
+        The above will print "Hello" on every `Exit` type Exit Event. As the
+        function returns False, the simulation loop will not end on these
+        events.
+
+
+        Exit Event defaults
+        ===================
+
         Each exit event has a default behavior if none is specified by the
         user. These are as follows:
 
@@ -164,12 +248,6 @@ class Simulator:
         These generators can be found in the `exit_event_generator.py` module.
 
         """
-
-        warn(
-            "The simulate package is still in a beta state. The gem5 "
-            "project does not guarantee the APIs within this package will "
-            "remain consistent across upcoming releases."
-        )
 
         # We specify a dictionary here outlining the default behavior for each
         # exit event. Each exit event is mapped to a generator.
@@ -212,7 +290,28 @@ class Simulator:
         }
 
         if on_exit_event:
-            self._on_exit_event = on_exit_event
+            self._on_exit_event = {}
+            for key, value in on_exit_event.items():
+                if isinstance(value, Generator):
+                    self._on_exit_event[key] = value
+                elif isinstance(value, List):
+                    # In instances where we have a list of functions, we
+                    # convert this to a generator.
+                    self._on_exit_event[key] = (func() for func in value)
+                elif isinstance(value, Callable):
+                    # In instances where the user passes a lone function, the
+                    # function is called on every exit event of that type. Here
+                    # we convert the function into an infinite generator.
+                    def function_generator(func: Callable):
+                        while True:
+                            yield func()
+
+                    self._on_exit_event[key] = function_generator(func=value)
+                else:
+                    raise Exception(
+                        f"`on_exit_event` for '{key.value}' event is "
+                        "not a Generator or List[Callable]."
+                    )
         else:
             self._on_exit_event = self._default_on_exit_dict
 
@@ -485,12 +584,12 @@ class Simulator:
                 # If the user has specified their own generator for this exit
                 # event, use it.
                 exit_on_completion = next(self._on_exit_event[exit_enum])
-            except StopIteration:
+            except (StopIteration):
                 # If the user's generator has ended, throw a warning and use
                 # the default generator for this exit event.
                 warn(
-                    "User-specified generator for the exit event "
-                    f"'{exit_enum.value}' has ended. Using the default "
+                    "User-specified generator/function list for the exit "
+                    f"event'{exit_enum.value}' has ended. Using the default "
                     "generator."
                 )
                 exit_on_completion = next(
@@ -506,7 +605,7 @@ class Simulator:
             self._exit_event_count += 1
 
             # If the generator returned True we will return from the Simulator
-            # run loop.
+            # run loop. In the case of a function: if it returned True.
             if exit_on_completion:
                 return
 
