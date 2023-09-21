@@ -39,3 +39,4 @@ configs/learning_gem5/
 configs/tutorial/
 .pyenv
 .vscode
+typings
