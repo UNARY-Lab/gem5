@@ -271,7 +271,6 @@ PciDevice::getAddrRanges() const
     AddrRangeList ranges;
     PciCommandRegister command = letoh(config.command);
     for (auto *bar: BARs) {
-        printf("device %s bar address %lx, %lx\n", this->name().c_str(),  bar->addr(), bar->size());
         if (command.ioSpace && bar->isIo())
             ranges.push_back(bar->range());
         if (command.memorySpace && bar->isMem())
@@ -322,6 +321,8 @@ PciDevice::writeConfig(PacketPtr pkt)
           case PCI_REVISION_ID:
             break;
           default:
+            // print out pkt
+            DPRINTF(PciDevice, pkt->print().c_str());
             panic("writing to a read only register");
         }
         DPRINTF(PciDevice,

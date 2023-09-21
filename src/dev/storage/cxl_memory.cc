@@ -1,4 +1,5 @@
 #include "dev/storage/cxl_memory.hh"
+
 #include "base/addr_range.hh"
 #include "base/trace.hh"
 #include "debug/CxlMemory.hh"
@@ -6,8 +7,10 @@
 namespace gem5 {
 
 CxlMemory::CxlMemory(const Param &p)
-    : PciDevice(p), mem_(RangeSize(p.BAR0->addr(), p.BAR0->size())),
-      latency_(p.latency), cxl_mem_latency_(p.cxl_mem_latency) {}
+    : PciDevice(p), configSpaceRegs(name() + ".config_space_regs"),
+      addr_range_(RangeSize(p.BAR0->addr(), p.BAR0->size())),
+      mem_(addr_range_), latency_(p.latency),
+      cxl_mem_latency_(p.cxl_mem_latency) {}
 
 Tick CxlMemory::read(PacketPtr pkt) {
   DPRINTF(CxlMemory, "read address : (%lx, %lx)", pkt->getAddr(),
@@ -26,7 +29,16 @@ Tick CxlMemory::write(PacketPtr pkt) {
 }
 
 AddrRangeList CxlMemory::getAddrRanges() const {
-  return PciDevice::getAddrRanges();
+  AddrRangeList ranges = PciDevice::getAddrRanges();
+  AddrRangeList ret_ranges;
+  ret_ranges.push_back(addr_range_);
+  // ranges starting with 0 haven't been assigned
+  for (const auto &r : ranges)
+    if (r.start() != 0) {
+      DPRINTF(CxlMemory, "adding range: %s\n", r.to_string());
+      ret_ranges.push_back(r);
+    }
+  return ret_ranges;
 }
 
 Tick CxlMemory::resolve_cxl_mem(PacketPtr pkt) {
@@ -42,6 +54,37 @@ Tick CxlMemory::resolve_cxl_mem(PacketPtr pkt) {
 
 CxlMemory::Memory::Memory(const AddrRange &range) : range(range) {
   pmemAddr = new uint8_t[range.size()];
+}
+
+Tick CxlMemory::readConfig(PacketPtr pkt) {
+  int offset = pkt->getAddr() & PCI_CONFIG_SIZE;
+  if (offset < PCI_DEVICE_SPECIFIC)
+    return PciDevice::readConfig(pkt);
+
+  size_t size = pkt->getSize();
+
+  configSpaceRegs.read(offset, pkt->getPtr<void>(), size);
+
+  DPRINTF(CxlMemory, "PCI read offset: %#x size: %d data: %#x\n", offset, size,
+          pkt->getUintX(ByteOrder::little));
+
+  pkt->makeAtomicResponse();
+  return latency_ + resolve_cxl_mem(pkt);
+}
+
+Tick CxlMemory::writeConfig(PacketPtr pkt) {
+  int offset = pkt->getAddr() & PCI_CONFIG_SIZE;
+  if (offset < PCI_DEVICE_SPECIFIC)
+    return PciDevice::writeConfig(pkt);
+
+  size_t size = pkt->getSize();
+
+  DPRINTF(CxlMemory, "PCI write offset: %#x size: %d data: %#x\n",
+          offset, size, pkt->getUintX(ByteOrder::little));
+  configSpaceRegs.write(offset, pkt->getConstPtr<void>(), size);
+
+  pkt->makeAtomicResponse();
+  return latency_ + resolve_cxl_mem(pkt);
 }
 
 void CxlMemory::Memory::access(PacketPtr pkt) {
