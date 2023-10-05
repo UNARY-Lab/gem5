@@ -1,5 +1,4 @@
 #include "dev/storage/cxl_memory.hh"
-
 #include "base/addr_range.hh"
 #include "base/trace.hh"
 #include "debug/CxlMemory.hh"
@@ -9,20 +8,16 @@ namespace gem5 {
 CxlMemory::CxlMemory(const Param &p)
     : PciDevice(p), configSpaceRegs(name() + ".config_space_regs"),
       addr_range_(RangeSize(p.BAR0->addr(), p.BAR0->size())),
-      mem_(addr_range_), latency_(p.latency),
+      mem_(addr_range_, this), latency_(p.latency),
       cxl_mem_latency_(p.cxl_mem_latency) {}
 
 Tick CxlMemory::read(PacketPtr pkt) {
-  DPRINTF(CxlMemory, "read address : (%lx, %lx)", pkt->getAddr(),
-          pkt->getSize());
   Tick cxl_latency = resolve_cxl_mem(pkt);
   mem_.access(pkt);
   return latency_ + cxl_latency;
 }
 
 Tick CxlMemory::write(PacketPtr pkt) {
-  DPRINTF(CxlMemory, "write address : (%lx, %lx)", pkt->getAddr(),
-          pkt->getSize());
   Tick cxl_latency = resolve_cxl_mem(pkt);
   mem_.access(pkt);
   return latency_ + cxl_latency;
@@ -52,9 +47,8 @@ Tick CxlMemory::resolve_cxl_mem(PacketPtr pkt) {
   return cxl_mem_latency_;
 }
 
-CxlMemory::Memory::Memory(const AddrRange &range) : range(range) {
-  pmemAddr = new uint8_t[range.size()];
-}
+CxlMemory::Memory::Memory(const AddrRange &range, CxlMemory *cxl_root)
+    : range(range), cxl_root(cxl_root), memory(new uint8_t[range.size()]) {}
 
 Tick CxlMemory::readConfig(PacketPtr pkt) {
   int offset = pkt->getAddr() & PCI_CONFIG_SIZE;
@@ -65,8 +59,9 @@ Tick CxlMemory::readConfig(PacketPtr pkt) {
 
   configSpaceRegs.read(offset, pkt->getPtr<void>(), size);
 
-  DPRINTF(CxlMemory, "PCI read offset: %#x size: %d data: %#x addr: %#x\n", offset, size,
-          pkt->getUintX(ByteOrder::little), pkt->getAddr());
+  DPRINTF(CxlMemory,
+          "PCI Config read offset: %#x size: %d data: %#x addr: %#x\n", offset,
+          size, pkt->getUintX(ByteOrder::little), pkt->getAddr());
 
   pkt->makeAtomicResponse();
   return latency_ + resolve_cxl_mem(pkt);
@@ -79,7 +74,7 @@ Tick CxlMemory::writeConfig(PacketPtr pkt) {
 
   size_t size = pkt->getSize();
 
-  DPRINTF(CxlMemory, "PCI write offset: %#x size: %d data: %#x\n",
+  DPRINTF(CxlMemory, "PCI Config write offset: %#x size: %d data: %#x\n",
           offset, size, pkt->getUintX(ByteOrder::little));
   configSpaceRegs.write(offset, pkt->getConstPtr<void>(), size);
 
@@ -88,27 +83,29 @@ Tick CxlMemory::writeConfig(PacketPtr pkt) {
 }
 
 void CxlMemory::Memory::access(PacketPtr pkt) {
-  range = AddrRange(0x100000000, 0x100000000 + 0x7000000);
+  Addr addr = pkt->getAddr();
   if (pkt->cacheResponding()) {
-    DPRINTF(CxlMemory, "Cache responding to %#llx: not responding\n",
-            pkt->getAddr());
+    DPRINTF(CxlMemory, "Cache responding to %#x: not responding\n", addr);
     return;
   }
 
   if (pkt->cmd == MemCmd::CleanEvict || pkt->cmd == MemCmd::WritebackClean) {
-    DPRINTF(CxlMemory, "CleanEvict  on 0x%x: not responding\n", pkt->getAddr());
+    DPRINTF(CxlMemory, "CleanEvict  on %#x: not responding\n", addr);
     return;
   }
 
-  assert(pkt->getAddrRange().isSubset(range));
+  int bar_num;
+  Addr offset;
+  panic_if(!cxl_root->getBAR(addr, bar_num, offset),
+           "CXL memory access to unmapped address %#x\n", addr);
 
-  uint8_t *host_addr = toHostAddr(pkt->getAddr());
+  uint8_t *host_addr = (uint8_t *)(offset + memory);
 
-
+  // Below is all taken from abstract_mem.cc
+  // TODO: refactor into what we need
   if (pkt->cmd == MemCmd::SwapReq) {
-    DPRINTF(CxlMemory, "PCI memory SwapReq host_addr: %#x\n", host_addr);
     if (pkt->isAtomicOp()) {
-      if (pmemAddr) {
+      if (memory) {
         pkt->setData(host_addr);
         (*(pkt->getAtomicOp()))(host_addr);
       }
@@ -117,8 +114,8 @@ void CxlMemory::Memory::access(PacketPtr pkt) {
       uint64_t condition_val64;
       uint32_t condition_val32;
 
-      panic_if(!pmemAddr, "Swap only works if there is real memory "
-                          "(i.e. null=False)");
+      panic_if(!memory, "Swap only works if there is real memory "
+                        "(i.e. null=False)");
 
       bool overwrite_mem = true;
       // keep a copy of our possible write value, and copy what is at the
@@ -145,21 +142,18 @@ void CxlMemory::Memory::access(PacketPtr pkt) {
       assert(!pkt->req->isInstFetch());
     }
   } else if (pkt->isRead()) {
-    DPRINTF(CxlMemory, "PCI memory read host_addr: %#x\n", host_addr);
     assert(!pkt->isWrite());
-    if (pmemAddr) {
+    if (memory) {
       pkt->setData(host_addr);
     }
   } else if (pkt->isInvalidate() || pkt->isClean()) {
-    DPRINTF(CxlMemory, "PCI memory invalidate host_addr: %#x\n", host_addr);
     assert(!pkt->isWrite());
     // in a fastmem system invalidating and/or cleaning packets
     // can be seen due to cache maintenance requests
 
     // no need to do anything
   } else if (pkt->isWrite()) {
-    DPRINTF(CxlMemory, "PCI memory write host_addr: %#x\n", host_addr);
-    if (pmemAddr) {
+    if (memory) {
       pkt->writeData(host_addr);
       DPRINTF(CxlMemory, "%s write due to %s\n", __func__, pkt->print());
     }
