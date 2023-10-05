@@ -65,8 +65,8 @@ Tick CxlMemory::readConfig(PacketPtr pkt) {
 
   configSpaceRegs.read(offset, pkt->getPtr<void>(), size);
 
-  DPRINTF(CxlMemory, "PCI read offset: %#x size: %d data: %#x\n", offset, size,
-          pkt->getUintX(ByteOrder::little));
+  DPRINTF(CxlMemory, "PCI read offset: %#x size: %d data: %#x addr: %#x\n", offset, size,
+          pkt->getUintX(ByteOrder::little), pkt->getAddr());
 
   pkt->makeAtomicResponse();
   return latency_ + resolve_cxl_mem(pkt);
@@ -104,7 +104,9 @@ void CxlMemory::Memory::access(PacketPtr pkt) {
 
   uint8_t *host_addr = toHostAddr(pkt->getAddr());
 
+
   if (pkt->cmd == MemCmd::SwapReq) {
+    DPRINTF(CxlMemory, "PCI memory SwapReq host_addr: %#x\n", host_addr);
     if (pkt->isAtomicOp()) {
       if (pmemAddr) {
         pkt->setData(host_addr);
@@ -143,17 +145,20 @@ void CxlMemory::Memory::access(PacketPtr pkt) {
       assert(!pkt->req->isInstFetch());
     }
   } else if (pkt->isRead()) {
+    DPRINTF(CxlMemory, "PCI memory read host_addr: %#x\n", host_addr);
     assert(!pkt->isWrite());
     if (pmemAddr) {
       pkt->setData(host_addr);
     }
   } else if (pkt->isInvalidate() || pkt->isClean()) {
+    DPRINTF(CxlMemory, "PCI memory invalidate host_addr: %#x\n", host_addr);
     assert(!pkt->isWrite());
     // in a fastmem system invalidating and/or cleaning packets
     // can be seen due to cache maintenance requests
 
     // no need to do anything
   } else if (pkt->isWrite()) {
+    DPRINTF(CxlMemory, "PCI memory write host_addr: %#x\n", host_addr);
     if (pmemAddr) {
       pkt->writeData(host_addr);
       DPRINTF(CxlMemory, "%s write due to %s\n", __func__, pkt->print());
