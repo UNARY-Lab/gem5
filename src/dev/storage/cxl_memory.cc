@@ -37,6 +37,7 @@ AddrRangeList CxlMemory::getAddrRanges() const {
 }
 
 Tick CxlMemory::resolve_cxl_mem(PacketPtr pkt) {
+  // TODO: add ability to have a topology of CXL memory
   if (pkt->cmd == MemCmd::ReadReq) {
     assert(pkt->isRead());
     assert(pkt->needsResponse());
@@ -83,6 +84,7 @@ Tick CxlMemory::writeConfig(PacketPtr pkt) {
 }
 
 void CxlMemory::Memory::access(PacketPtr pkt) {
+  // Below is borrowed from abstract_mem.cc
   Addr addr = pkt->getAddr();
   if (pkt->cacheResponding()) {
     DPRINTF(CxlMemory, "Cache responding to %#x: not responding\n", addr);
@@ -101,69 +103,17 @@ void CxlMemory::Memory::access(PacketPtr pkt) {
 
   uint8_t *host_addr = (uint8_t *)(offset + memory);
 
-  // Below is all taken from abstract_mem.cc
-  // TODO: refactor into what we need
-  if (pkt->cmd == MemCmd::SwapReq) {
-    if (pkt->isAtomicOp()) {
-      if (memory) {
-        pkt->setData(host_addr);
-        (*(pkt->getAtomicOp()))(host_addr);
-      }
-    } else {
-      std::vector<uint8_t> overwrite_val(pkt->getSize());
-      uint64_t condition_val64;
-      uint32_t condition_val32;
-
-      panic_if(!memory, "Swap only works if there is real memory "
-                        "(i.e. null=False)");
-
-      bool overwrite_mem = true;
-      // keep a copy of our possible write value, and copy what is at the
-      // memory address into the packet
-      pkt->writeData(&overwrite_val[0]);
-      pkt->setData(host_addr);
-
-      if (pkt->req->isCondSwap()) {
-        if (pkt->getSize() == sizeof(uint64_t)) {
-          condition_val64 = pkt->req->getExtraData();
-          overwrite_mem =
-              !std::memcmp(&condition_val64, host_addr, sizeof(uint64_t));
-        } else if (pkt->getSize() == sizeof(uint32_t)) {
-          condition_val32 = (uint32_t)pkt->req->getExtraData();
-          overwrite_mem =
-              !std::memcmp(&condition_val32, host_addr, sizeof(uint32_t));
-        } else
-          panic("Invalid size for conditional read/write\n");
-      }
-
-      if (overwrite_mem)
-        std::memcpy(host_addr, &overwrite_val[0], pkt->getSize());
-
-      assert(!pkt->req->isInstFetch());
-    }
-  } else if (pkt->isRead()) {
-    assert(!pkt->isWrite());
-    if (memory) {
-      pkt->setData(host_addr);
-    }
-  } else if (pkt->isInvalidate() || pkt->isClean()) {
-    assert(!pkt->isWrite());
-    // in a fastmem system invalidating and/or cleaning packets
-    // can be seen due to cache maintenance requests
-
-    // no need to do anything
-  } else if (pkt->isWrite()) {
-    if (memory) {
-      pkt->writeData(host_addr);
-      DPRINTF(CxlMemory, "%s write due to %s\n", __func__, pkt->print());
-    }
-    assert(!pkt->req->isInstFetch());
-  } else {
-    panic("Unexpected packet %s", pkt->print());
-  }
-
-  if (pkt->needsResponse()) {
+  // TODO: add statistics (from abstract_mem)
+  if (pkt->isRead()) {
+    DPRINTF(CxlMemory, "Read at addr %#x, size %d\n", addr, pkt->getSize());
+    pkt->setData(host_addr);
     pkt->makeResponse();
-  }
+  } else if (pkt->isWrite()) {
+    DPRINTF(CxlMemory, "Write at addr %#x, size %d\n", addr, pkt->getSize());
+    pkt->writeData(host_addr);
+    pkt->makeResponse();
+  } else
+    panic("AbstractMemory: unimplemented functional command %s",
+          pkt->cmdString());
 }
 } // namespace gem5
