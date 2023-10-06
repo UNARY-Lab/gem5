@@ -55,7 +55,6 @@
 #include "base/addr_range.hh"
 #include "base/cast.hh"
 #include "base/compiler.hh"
-#include "base/extensible.hh"
 #include "base/flags.hh"
 #include "base/logging.hh"
 #include "base/printable.hh"
@@ -291,7 +290,7 @@ class MemCmd
  * ultimate destination and back, possibly being conveyed by several
  * different Packets along the way.)
  */
-class Packet : public Printable, public Extensible<Packet>
+class Packet : public Printable
 {
   public:
     typedef uint32_t FlagsType;
@@ -626,8 +625,7 @@ class Packet : public Printable, public Extensible<Packet>
     bool isWholeLineWrite(unsigned blk_size)
     {
         return (cmd == MemCmd::WriteReq || cmd == MemCmd::WriteLineReq) &&
-            getOffset(blk_size) == 0 && getSize() == blk_size &&
-            !isMaskedWrite();
+            getOffset(blk_size) == 0 && getSize() == blk_size;
     }
 
     //@{
@@ -942,8 +940,7 @@ class Packet : public Printable, public Extensible<Packet>
      * packet should allocate its own data.
      */
     Packet(const PacketPtr pkt, bool clear_flags, bool alloc_data)
-        :  Extensible<Packet>(*pkt),
-           cmd(pkt->cmd), id(pkt->id), req(pkt->req),
+        :  cmd(pkt->cmd), id(pkt->id), req(pkt->req),
            data(nullptr),
            addr(pkt->addr), _isSecure(pkt->_isSecure), size(pkt->size),
            bytesValid(pkt->bytesValid),
@@ -1104,16 +1101,6 @@ class Packet : public Printable, public Extensible<Packet>
     }
 
     /**
-     * Accessor functions for the cache bypass flags. The cache bypass
-     * can specify which levels in the hierarchy to bypass. If GLC_BIT
-     * is set, the requests are globally coherent and bypass TCP.
-     * If SLC_BIT is set, then the requests are system level coherent
-     * and bypass both TCP and TCC.
-     */
-    bool isGLCSet() const { return req->isGLCSet();}
-    bool isSLCSet() const { return req->isSLCSet();}
-
-    /**
      * Check if packet corresponds to a given block-aligned address and
      * address space.
      *
@@ -1156,7 +1143,7 @@ class Packet : public Printable, public Extensible<Packet>
   public:
     /**
      * @{
-     * @name Data accessor methods
+     * @name Data accessor mehtods
      */
 
     /**
@@ -1435,15 +1422,6 @@ class Packet : public Printable, public Extensible<Packet>
     isCleanEviction() const
     {
         return cmd == MemCmd::CleanEvict || cmd == MemCmd::WritebackClean;
-    }
-
-    /**
-     * Is this packet a clean invalidate request, e.g., clflush/clflushopt?
-     */
-    bool
-    isCleanInvalidateRequest() const
-    {
-        return cmd == MemCmd::CleanInvalidReq;
     }
 
     bool
