@@ -1,3 +1,6 @@
+#ifndef __DEV_STORAGE_CXL_CTRL_HH__
+#define __DEV_STORAGE_CXL_CTRL_HH__
+
 #include "base/addr_range.hh"
 #include "base/trace.hh"
 #include "base/types.hh"
@@ -5,30 +8,13 @@
 #include "dev/reg_bank.hh"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
+#include "params/CxlController.hh"
 #include "params/CxlMemory.hh"
 
 namespace gem5 {
 
-class CxlMemory : public PciDevice {
+class CxlController : public PciDevice {
 private:
-  class Memory {
-  private:
-    AddrRange range;
-    CxlMemory *cxl_root;
-    uint8_t *memory;
-    const std::string name_ = "CxlMemory::Memory";
-
-  public:
-    Memory(const AddrRange &range, CxlMemory *cxl_root);
-    const std::string &name() const { return name_; }
-    void access(PacketPtr pkt);
-
-    Memory(const Memory &other) = delete;
-    Memory &operator=(const Memory &other) = delete;
-
-    ~Memory() { delete memory; }
-  };
-
   // Below is taken from ide_ctrl.hh
   /** Registers used in device specific PCI configuration */
   class ConfigSpaceRegs : public RegisterBankLE {
@@ -63,13 +49,13 @@ private:
 
   ConfigSpaceRegs configSpaceRegs;
 
-  AddrRange addr_range_;
-  Memory mem_;
-
   Tick latency_;
   Tick cxl_mem_latency_;
 
+  std::vector<CxlMemory *> cxl_mem_;
+
 public:
+  PARAMS(CxlController);
   virtual Tick read(PacketPtr pkt) override;
   virtual Tick write(PacketPtr pkt) override;
 
@@ -79,8 +65,27 @@ public:
   Tick writeConfig(PacketPtr pkt);
   Tick readConfig(PacketPtr pkt);
 
-  using Param = CxlMemoryParams;
-  CxlMemory(const Param &p);
+  CxlController(const Params &p);
+};
+
+class CxlMemory : public SimObject {
+private:
+  uint64_t size_;
+  uint8_t *memory;
+
+public:
+  PARAMS(CxlMemory);
+  void access(PacketPtr pkt, Addr addr, int bar_num, Addr offset);
+
+  CxlMemory(const CxlMemory &other) = delete;
+  CxlMemory &operator=(const CxlMemory &other) = delete;
+
+  uint64_t size() const { return size_; }
+
+  ~CxlMemory() { delete memory; }
+  CxlMemory(const Params &p);
 };
 
 } // namespace gem5
+
+#endif // __DEV_STORAGE_CXL_CTRL_HH__

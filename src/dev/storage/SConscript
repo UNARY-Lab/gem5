@@ -42,14 +42,14 @@ Import('*')
 
 # Controllers
 SimObject('Ide.py', sim_objects=['IdeDisk', 'IdeController'], enums=['IdeID'])
-SimObject('CxlMemory.py', sim_objects=['CxlMemory'])
+SimObject('Cxl.py', sim_objects=['CxlController', 'CxlMemory'])
 
 Source('ide_ctrl.cc')
 Source('ide_disk.cc')
 
-Source('cxl_memory.cc')
+Source('cxl_controller.cc')
 
-DebugFlag('CxlMemory')
+DebugFlag('CxlController')
 DebugFlag('IdeCtrl')
 DebugFlag('IdeDisk')
 
