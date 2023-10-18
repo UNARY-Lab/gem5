@@ -61,7 +61,6 @@ public:
 
   virtual AddrRangeList getAddrRanges() const override;
 
-  Tick resolve_cxl_mem(PacketPtr ptk);
   Tick writeConfig(PacketPtr pkt);
   Tick readConfig(PacketPtr pkt);
 

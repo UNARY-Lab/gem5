@@ -12,7 +12,6 @@ CxlController::CxlController(const Params &p)
       cxl_mem_(params().memories) {}
 
 Tick CxlController::read(PacketPtr pkt) {
-  Tick cxl_latency = resolve_cxl_mem(pkt);
   Addr addr = pkt->getAddr();
   if (pkt->cacheResponding()) {
     DPRINTF(CxlController, "Cache responding to %#x: not responding\n", addr);
@@ -36,11 +35,10 @@ Tick CxlController::read(PacketPtr pkt) {
       break;
     }
   }
-  return latency_ + cxl_latency;
+  return latency_;
 }
 
 Tick CxlController::write(PacketPtr pkt) {
-  Tick cxl_latency = resolve_cxl_mem(pkt);
   Addr addr = pkt->getAddr();
   if (pkt->cacheResponding()) {
     DPRINTF(CxlController, "Cache responding to %#x: not responding\n", addr);
@@ -64,7 +62,7 @@ Tick CxlController::write(PacketPtr pkt) {
       break;
     }
   }
-  return latency_ + cxl_latency;
+  return latency_;
 }
 
 AddrRangeList CxlController::getAddrRanges() const {
@@ -77,18 +75,6 @@ AddrRangeList CxlController::getAddrRanges() const {
       ret_ranges.push_back(r);
     }
   return ret_ranges;
-}
-
-Tick CxlController::resolve_cxl_mem(PacketPtr pkt) {
-  // TODO: add ability to have a topology of CXL memory
-  if (pkt->cmd == MemCmd::ReadReq) {
-    assert(pkt->isRead());
-    assert(pkt->needsResponse());
-  } else if (pkt->cmd == MemCmd::WriteReq) {
-    assert(pkt->isWrite());
-    assert(pkt->needsResponse());
-  }
-  return cxl_mem_latency_;
 }
 
 CxlMemory::CxlMemory(const Params &p)
@@ -108,7 +94,7 @@ Tick CxlController::readConfig(PacketPtr pkt) {
           size, pkt->getUintX(ByteOrder::little), pkt->getAddr());
 
   pkt->makeAtomicResponse();
-  return latency_ + resolve_cxl_mem(pkt);
+  return latency_;
 }
 
 Tick CxlController::writeConfig(PacketPtr pkt) {
@@ -123,7 +109,7 @@ Tick CxlController::writeConfig(PacketPtr pkt) {
   configSpaceRegs.write(offset, pkt->getConstPtr<void>(), size);
 
   pkt->makeAtomicResponse();
-  return latency_ + resolve_cxl_mem(pkt);
+  return latency_;
 }
 
 void CxlMemory::access(PacketPtr pkt, Addr addr, int bar_num, Addr offset) {
@@ -136,8 +122,7 @@ void CxlMemory::access(PacketPtr pkt, Addr addr, int bar_num, Addr offset) {
     pkt->setData(host_addr);
     pkt->makeResponse();
   } else if (pkt->isWrite()) {
-    DPRINTF(CxlMemory, "Write at addr %#x, size %d\n", addr,
-            pkt->getSize());
+    DPRINTF(CxlMemory, "Write at addr %#x, size %d\n", addr, pkt->getSize());
     pkt->writeData(host_addr);
     pkt->makeResponse();
   } else
